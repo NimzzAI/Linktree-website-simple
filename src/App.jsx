@@ -75,13 +75,20 @@ const App = () => {
     const [toastMessage, setToastMessage] = useState(null);
     const [copiedHandle, setCopiedHandle] = useState(false);
     const [copiedLinkId, setCopiedLinkId] = useState(null);
-    const [showTime, setShowTime] = useState(false);
+    const [showTime, setShowTime] = useState(true);
     const [timeStr, setTimeStr] = useState('');
 
     useEffect(() => {
         const updateClock = () => {
             const now = new Date();
-            setTimeStr(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            const formatted = now.toLocaleTimeString('en-GB', {
+                timeZone: 'Asia/Jakarta',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            setTimeStr(`${formatted} WIB`);
         };
         updateClock();
         const interval = setInterval(updateClock, 1000);
@@ -153,9 +160,13 @@ const App = () => {
                         className="hud-pill-btn" 
                         onClick={() => {
                             playClickHaptic(soundEnabled);
-                            setShowTime(!showTime);
+                            const next = !showTime;
+                            setShowTime(next);
+                            triggerToast(next ? "Jam Jakarta (WIB)" : `Status: ${settings.profile.status}`);
                         }}
                         id="hud-status-toggle"
+                        title="Klik untuk beralih antara Jam Indonesia Jakarta (WIB) dan Status"
+                        aria-label="Toggle clock and status"
                     >
                         <span className="live-ping" />
                         <span className="hud-label">
