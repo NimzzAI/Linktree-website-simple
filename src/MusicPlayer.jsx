@@ -1,18 +1,53 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Volume2, VolumeX, Play, Pause, Disc3, RotateCcw, ChevronUp, ChevronDown, Music2 } from 'lucide-react';
+import { 
+    Play, 
+    Pause, 
+    SkipBack, 
+    SkipForward, 
+    RotateCcw, 
+    Volume1, 
+    Volume2, 
+    VolumeX, 
+    Airplay, 
+    Heart, 
+    ChevronDown, 
+    Music2
+} from 'lucide-react';
 import { settings } from './settings.js';
 
-const MusicPlayer = ({ onToast }) => {
+const playHapticFeedback = (enabled = true) => {
+    if (!enabled || typeof window === 'undefined') return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(420, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.025);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.025);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.025);
+    } catch (e) {}
+};
+
+const MusicPlayer = ({ onToast, soundEnabled = true }) => {
     const audioRef = useRef(null);
     const progressRef = useRef(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
-    const [volume, setVolume] = useState(0.8);
+    const [volume, setVolume] = useState(0.85);
     const [isMuted, setIsMuted] = useState(false);
     const [isLooping, setIsLooping] = useState(false);
+    const [isLiked, setIsLiked] = useState(false);
+    const [isScrubbing, setIsScrubbing] = useState(false);
 
     useEffect(() => {
         if (audioRef.current) {
@@ -20,8 +55,16 @@ const MusicPlayer = ({ onToast }) => {
         }
     }, [volume, isMuted]);
 
-    const togglePlay = () => {
+    const triggerHaptic = () => playHapticFeedback(soundEnabled);
+
+    const togglePlay = (e) => {
+        if (e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+        triggerHaptic();
         if (!audioRef.current) return;
+
         if (isPlaying) {
             audioRef.current.pause();
             setIsPlaying(false);
@@ -29,17 +72,17 @@ const MusicPlayer = ({ onToast }) => {
             audioRef.current.play()
                 .then(() => {
                     setIsPlaying(true);
-                    onToast?.(`Now playing: ${settings.music.title}`);
+                    onToast?.(`Playing: ${settings.music.title}`);
                 })
                 .catch(() => {
                     setIsPlaying(false);
-                    onToast?.("Tap play again to enable audio");
+                    onToast?.("Tap play to begin audio");
                 });
         }
     };
 
     const handleTimeUpdate = () => {
-        if (audioRef.current) {
+        if (audioRef.current && !isScrubbing) {
             setCurrentTime(audioRef.current.currentTime);
         }
     };
@@ -50,207 +93,346 @@ const MusicPlayer = ({ onToast }) => {
         }
     };
 
-    const handleSeek = (e) => {
+    const applySeek = (clientX) => {
         if (!progressRef.current || !audioRef.current || !duration) return;
         const rect = progressRef.current.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clickX = Math.max(0, Math.min(clientX - rect.left, rect.width));
         const newTime = (clickX / rect.width) * duration;
         audioRef.current.currentTime = newTime;
         setCurrentTime(newTime);
     };
 
+    const handleSeekClick = (e) => {
+        triggerHaptic();
+        applySeek(e.clientX);
+    };
+
+    const skipSeconds = (seconds) => {
+        triggerHaptic();
+        if (!audioRef.current || !duration) return;
+        const target = Math.max(0, Math.min(duration, audioRef.current.currentTime + seconds));
+        audioRef.current.currentTime = target;
+        setCurrentTime(target);
+        onToast?.(seconds > 0 ? "+10s" : "-10s");
+    };
+
     const toggleMute = () => {
+        triggerHaptic();
         setIsMuted(!isMuted);
     };
 
     const toggleLoop = () => {
-        const nextLoop = !isLooping;
-        setIsLooping(nextLoop);
+        triggerHaptic();
+        const next = !isLooping;
+        setIsLooping(next);
         if (audioRef.current) {
-            audioRef.current.loop = nextLoop;
+            audioRef.current.loop = next;
         }
-        onToast?.(nextLoop ? "Repeat track enabled" : "Repeat track disabled");
+        onToast?.(next ? "Repeat: On" : "Repeat: Off");
     };
 
-    const formatTime = (time) => {
-        if (!time || isNaN(time)) return "0:00";
+    const toggleLiked = () => {
+        triggerHaptic();
+        const next = !isLiked;
+        setIsLiked(next);
+        onToast?.(next ? "Added to Favorites" : "Removed from Favorites");
+    };
+
+    const formatTime = (time, isRemaining = false) => {
+        if (!time || isNaN(time) || time < 0) return isRemaining ? "-0:00" : "0:00";
         const min = Math.floor(time / 60);
         const sec = Math.floor(time % 60);
-        return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+        const formatted = `${min}:${sec < 10 ? '0' : ''}${sec}`;
+        return isRemaining ? `-${formatted}` : formatted;
     };
 
     const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+    const remainingTime = duration > currentTime ? duration - currentTime : 0;
 
     return (
         <>
-            <motion.div 
-                className="music-floating-dock"
-                id="music-floating-dock"
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
-            >
-                <button 
-                    className={`dock-chip ${isPlaying ? 'dock-chip-active' : ''}`}
-                    onClick={() => setIsOpen(!isOpen)}
-                    id="music-dock-toggle"
-                    aria-label="Toggle music player"
-                >
-                    <div className="dock-avatar-spin">
-                        <img 
-                            src={settings.music.cover} 
-                            alt="Cover" 
-                            className={`dock-cover ${isPlaying ? 'spin' : ''}`}
-                        />
-                        {isPlaying && <span className="dock-live-dot" />}
-                    </div>
-
-                    <div className="dock-meta">
-                        <span className="dock-title">{settings.music.title}</span>
-                        <span className="dock-artist">{settings.music.artist}</span>
-                    </div>
-
-                    <div className="dock-waveform">
-                        {[40, 75, 55, 90, 45].map((h, i) => (
-                            <span 
-                                key={i} 
-                                className={`dock-bar ${isPlaying ? 'dock-bar-animated' : ''}`}
-                                style={{ 
-                                    height: isPlaying ? `${h}%` : '20%',
-                                    animationDelay: `${i * 0.15}s` 
-                                }}
-                            />
-                        ))}
-                    </div>
-
-                    <div 
-                        className="dock-quick-play"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            togglePlay();
-                        }}
-                    >
-                        {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
-                    </div>
-
-                    <div className="dock-chevron">
-                        {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-                    </div>
-                </button>
-            </motion.div>
-
+            {/* Collapsed Mode: iPhone Dynamic Island Pill */}
             <AnimatePresence>
-                {isOpen && (
+                {!isOpen && (
                     <motion.div 
-                        className="music-expanded-panel glass-card"
-                        id="music-expanded-panel"
-                        initial={{ opacity: 0, y: 30, scale: 0.96 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 20, scale: 0.96 }}
-                        transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                        className="ios-pill-dock"
+                        id="ios-pill-dock"
+                        initial={{ opacity: 0, y: 24 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 16 }}
+                        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                     >
-                        <div className="music-expanded-header">
-                            <div className="music-album-art">
+                        <div 
+                            className="ios-island-capsule"
+                            onClick={() => {
+                                triggerHaptic();
+                                setIsOpen(true);
+                            }}
+                            id="ios-island-capsule"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Open iPhone Music Player"
+                        >
+                            {/* Left: Album artwork with subtle playing indicator */}
+                            <div className="ios-capsule-art">
                                 <img 
                                     src={settings.music.cover} 
-                                    alt="Album cover" 
-                                    className={`expanded-cover ${isPlaying ? 'spin-slow' : ''}`}
+                                    alt={settings.music.title} 
+                                    className={`ios-capsule-cover ${isPlaying ? 'playing' : ''}`}
                                 />
-                                <div className="expanded-disc-center">
-                                    <Disc3 size={20} className={isPlaying ? 'spin' : ''} />
-                                </div>
+                                {isPlaying && <span className="ios-live-dot" />}
                             </div>
-                            
-                            <div className="expanded-details">
-                                <div className="expanded-badge">
-                                    <Music2 size={12} />
-                                    <span>Audio Player</span>
-                                </div>
-                                <h4 className="expanded-title">{settings.music.title}</h4>
-                                <p className="expanded-artist">{settings.music.artist}</p>
-                            </div>
-                        </div>
 
-                        <div className="expanded-visualizer">
-                            {[18, 35, 60, 85, 45, 95, 70, 30, 80, 50, 90, 65, 40, 75, 30].map((bar, index) => (
-                                <div 
-                                    key={index}
-                                    className={`expanded-wave-bar ${isPlaying ? 'active' : ''}`}
-                                    style={{ 
-                                        animationDelay: `${(index % 6) * 0.12}s`,
-                                        height: isPlaying ? undefined : '15%'
-                                    }}
-                                />
-                            ))}
-                        </div>
-
-                        <div className="expanded-progress-section">
-                            <div 
-                                className="scrubber-bar"
-                                ref={progressRef}
-                                onClick={handleSeek}
-                                id="music-scrubber"
-                            >
-                                <div 
-                                    className="scrubber-fill"
-                                    style={{ width: `${progressPercent}%` }}
-                                >
-                                    <span className="scrubber-handle" />
-                                </div>
+                            {/* Center: Track title & Artist in iOS typography */}
+                            <div className="ios-capsule-meta">
+                                <span className="ios-capsule-title">{settings.music.title}</span>
+                                <span className="ios-capsule-artist">{settings.music.artist}</span>
                             </div>
-                            <div className="scrubber-timestamps">
-                                <span>{formatTime(currentTime)}</span>
-                                <span>{formatTime(duration)}</span>
-                            </div>
-                        </div>
 
-                        <div className="expanded-controls">
+                            {/* Right: iOS Soundwave Bars */}
+                            <div className="ios-capsule-soundwave" aria-hidden="true">
+                                {[45, 85, 60, 95, 50].map((barHeight, idx) => (
+                                    <span 
+                                        key={idx} 
+                                        className={`ios-wave-bar ${isPlaying ? 'animated' : ''}`}
+                                        style={{
+                                            height: isPlaying ? `${barHeight}%` : '24%',
+                                            animationDelay: `${idx * 0.12}s`
+                                        }}
+                                    />
+                                ))}
+                            </div>
+
+                            {/* Quick Play/Pause circle button */}
                             <button 
-                                className={`icon-control-btn ${isLooping ? 'active' : ''}`}
-                                onClick={toggleLoop}
-                                id="music-loop-btn"
-                                aria-label="Toggle loop"
-                            >
-                                <RotateCcw size={15} />
-                            </button>
-
-                            <button 
-                                className="main-play-toggle"
+                                className="ios-capsule-play-btn"
                                 onClick={togglePlay}
-                                id="music-main-play-btn"
+                                id="ios-capsule-play-btn"
                                 aria-label={isPlaying ? "Pause music" : "Play music"}
                             >
-                                {isPlaying ? <Pause size={20} /> : <Play size={20} style={{ marginLeft: 2 }} />}
+                                {isPlaying ? (
+                                    <Pause size={14} className="fill-current" />
+                                ) : (
+                                    <Play size={14} className="fill-current ml-0.5" />
+                                )}
                             </button>
-
-                            <div className="volume-control-group">
-                                <button 
-                                    className="icon-control-btn"
-                                    onClick={toggleMute}
-                                    id="music-volume-mute-btn"
-                                    aria-label="Toggle mute"
-                                >
-                                    {isMuted || volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                                </button>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="1" 
-                                    step="0.05"
-                                    value={isMuted ? 0 : volume}
-                                    onChange={(e) => {
-                                        const val = parseFloat(e.target.value);
-                                        setVolume(val);
-                                        if (isMuted && val > 0) setIsMuted(false);
-                                    }}
-                                    className="volume-slider"
-                                    id="music-volume-slider"
-                                    aria-label="Volume slider"
-                                />
-                            </div>
                         </div>
                     </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Expanded Mode: iPhone iOS Now Playing Sheet */}
+            <AnimatePresence>
+                {isOpen && (
+                    <>
+                        {/* Backdrop Scrim (Prevents any see-through / overlap conflict) */}
+                        <motion.div 
+                            className="ios-player-scrim"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => {
+                                triggerHaptic();
+                                setIsOpen(false);
+                            }}
+                            id="ios-player-scrim"
+                        />
+
+                        <motion.div 
+                            className="ios-player-sheet"
+                            id="ios-expanded-player"
+                            initial={{ opacity: 0, y: 40, scale: 0.96 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 30, scale: 0.96 }}
+                            transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                        >
+                            {/* Top iOS Grabber / Pull Handle */}
+                            <div 
+                                className="ios-sheet-grabber-area"
+                                onClick={() => {
+                                    triggerHaptic();
+                                    setIsOpen(false);
+                                }}
+                            >
+                                <div className="ios-grabber-pill" />
+                            </div>
+
+                            {/* iOS Header Bar: AirPlay / Route Status */}
+                            <div className="ios-header-row">
+                                <div className="ios-route-badge">
+                                    <Airplay size={13} className="ios-airplay-icon" />
+                                    <span>iPhone • Speaker</span>
+                                </div>
+
+                                <div className="ios-header-actions">
+                                    <button 
+                                        className={`ios-pill-icon-btn ${isLooping ? 'active' : ''}`}
+                                        onClick={toggleLoop}
+                                        id="ios-repeat-btn"
+                                        title={isLooping ? "Repeat active" : "Repeat track"}
+                                        aria-label="Toggle repeat"
+                                    >
+                                        <RotateCcw size={14} />
+                                    </button>
+
+                                    <button 
+                                        className="ios-pill-icon-btn"
+                                        onClick={() => {
+                                            triggerHaptic();
+                                            setIsOpen(false);
+                                        }}
+                                        id="ios-collapse-btn"
+                                        title="Minimize"
+                                        aria-label="Minimize player"
+                                    >
+                                        <ChevronDown size={17} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Hero Album Artwork (Scales like iOS 17/18 Apple Music) */}
+                            <div className="ios-artwork-container">
+                                <motion.div 
+                                    className="ios-artwork-wrapper"
+                                    animate={{ 
+                                        scale: isPlaying ? 1 : 0.93,
+                                        boxShadow: isPlaying 
+                                            ? '0 20px 48px -10px rgba(0, 0, 0, 0.75)' 
+                                            : '0 10px 25px -10px rgba(0, 0, 0, 0.5)'
+                                    }}
+                                    transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                                >
+                                    <img 
+                                        src={settings.music.cover} 
+                                        alt={settings.music.title} 
+                                        className="ios-main-cover"
+                                    />
+                                </motion.div>
+                            </div>
+
+                            {/* Track Metadata & Favorite Button */}
+                            <div className="ios-meta-row">
+                                <div className="ios-meta-text">
+                                    <h3 className="ios-song-title">{settings.music.title}</h3>
+                                    <p className="ios-song-artist">{settings.music.artist}</p>
+                                </div>
+
+                                <button 
+                                    className={`ios-heart-btn ${isLiked ? 'liked' : ''}`}
+                                    onClick={toggleLiked}
+                                    id="ios-favorite-btn"
+                                    aria-label="Favorite song"
+                                >
+                                    <Heart 
+                                        size={20} 
+                                        className={isLiked ? "fill-red-500 text-red-500" : "text-zinc-400"} 
+                                    />
+                                </button>
+                            </div>
+
+                            {/* iOS Time Scrubber */}
+                            <div className="ios-scrubber-section">
+                                <div 
+                                    className="ios-scrubber-track"
+                                    ref={progressRef}
+                                    onClick={handleSeekClick}
+                                    id="ios-scrubber-track"
+                                >
+                                    <div 
+                                        className="ios-scrubber-fill"
+                                        style={{ width: `${progressPercent}%` }}
+                                    >
+                                        <div className="ios-scrubber-knob" />
+                                    </div>
+                                </div>
+
+                                <div className="ios-time-labels">
+                                    <span>{formatTime(currentTime)}</span>
+                                    <span>{formatTime(remainingTime, true)}</span>
+                                </div>
+                            </div>
+
+                            {/* iOS Playback Controls */}
+                            <div className="ios-controls-cluster">
+                                <button 
+                                    className="ios-nav-btn"
+                                    onClick={() => skipSeconds(-10)}
+                                    id="ios-skip-back-btn"
+                                    title="Rewind 10 seconds"
+                                    aria-label="Rewind 10 seconds"
+                                >
+                                    <SkipBack size={26} className="fill-current" />
+                                </button>
+
+                                <button 
+                                    className="ios-primary-play-btn"
+                                    onClick={togglePlay}
+                                    id="ios-primary-play-btn"
+                                    aria-label={isPlaying ? "Pause" : "Play"}
+                                >
+                                    {isPlaying ? (
+                                        <Pause size={28} className="fill-current" />
+                                    ) : (
+                                        <Play size={28} className="fill-current ml-1" />
+                                    )}
+                                </button>
+
+                                <button 
+                                    className="ios-nav-btn"
+                                    onClick={() => skipSeconds(10)}
+                                    id="ios-skip-forward-btn"
+                                    title="Forward 10 seconds"
+                                    aria-label="Forward 10 seconds"
+                                >
+                                    <SkipForward size={26} className="fill-current" />
+                                </button>
+                            </div>
+
+                            {/* iOS Volume Capsule Slider */}
+                            <div className="ios-volume-row">
+                                <button 
+                                    className="ios-vol-icon-btn"
+                                    onClick={toggleMute}
+                                    id="ios-vol-mute-btn"
+                                    aria-label="Toggle mute"
+                                >
+                                    {isMuted || volume === 0 ? (
+                                        <VolumeX size={17} />
+                                    ) : (
+                                        <Volume1 size={17} />
+                                    )}
+                                </button>
+
+                                <div className="ios-volume-slider-box">
+                                    <input 
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.02"
+                                        value={isMuted ? 0 : volume}
+                                        onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            setVolume(val);
+                                            if (isMuted && val > 0) setIsMuted(false);
+                                        }}
+                                        className="ios-native-slider"
+                                        id="ios-native-volume-slider"
+                                        aria-label="Volume slider"
+                                    />
+                                </div>
+
+                                <div className="ios-vol-max-icon">
+                                    <Volume2 size={17} />
+                                </div>
+                            </div>
+
+                            {/* Authentic Apple Music Audio Quality Footer */}
+                            <div className="ios-footer-quality">
+                                <span className="ios-quality-pill">Lossless</span>
+                                <span className="ios-quality-spec">Apple Music • 24-bit / 48kHz ALAC</span>
+                            </div>
+                        </motion.div>
+                    </>
                 )}
             </AnimatePresence>
 

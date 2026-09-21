@@ -329,7 +329,7 @@ const App = () => {
                 </footer>
             </main>
 
-            <MusicPlayer onToast={triggerToast} />
+            <MusicPlayer onToast={triggerToast} soundEnabled={soundEnabled} />
 
             <ShareModal 
                 isOpen={showShareModal}

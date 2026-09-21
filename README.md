@@ -10,9 +10,9 @@ Developed for **NimzzAI** ([github.com/NimzzAI](https://github.com/NimzzAI)).
 
 - **Staggered Entrance Motion**: Smooth fade-in and subtle translation on social link cards using Framer Motion with cubic-bezier easing.
 - **Background Switcher**: Switch between Cinema Video, Minimal Dark (OLED), and Studio Ambient backdrops.
-- **Interactive Audio Player**:
-  - Floating dock with real-time waveform bars and spinning vinyl thumbnail.
-  - Expandable panel with audio scrubber, volume slider, mute toggle, and track repeat.
+- **iOS-Inspired Music Player**:
+  - **Dynamic Island Capsule**: Compact bottom pill with album artwork, live playback indicator dot, iOS soundwave bars, and quick playback control.
+  - **Apple Music Now Playing Sheet**: Solid, opaque card featuring grabber bar, AirPlay speaker badge, expanding album artwork with playback-reactive scale, iOS scrubber slider with elapsed and remaining timestamps, 10s skip controls, favorite button, and native volume slider. Fully opaque with focused backdrop scrim to eliminate background bleed.
 - **Audio Feedback**: Built-in low-latency sine synthesizer for tactile click feedback (toggleable).
 - **Profile Share & QR Code**:
   - Modal with instant QR code rendering for quick mobile scanning.
